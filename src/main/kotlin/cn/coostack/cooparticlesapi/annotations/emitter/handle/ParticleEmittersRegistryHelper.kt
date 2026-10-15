@@ -1,0 +1,125 @@
+package cn.coostack.cooparticlesapi.annotations.emitter.handle
+
+import cn.coostack.cooparticlesapi.annotations.codec.CodecFieldAccessor
+import cn.coostack.cooparticlesapi.annotations.codec.CodecHelper
+import cn.coostack.cooparticlesapi.network.particle.emitters.ClassEmitters
+import cn.coostack.cooparticlesapi.network.particle.emitters.ClassParticleEmitters
+import cn.coostack.cooparticlesapi.network.particle.emitters.ParticleEmitters
+import cn.coostack.cooparticlesapi.network.particle.emitters.TransformableCParticleEmitter
+import cn.coostack.cooparticlesapi.compat.mc1201.RegistryFriendlyByteBuf
+import cn.coostack.cooparticlesapi.compat.mc1201.StreamCodec
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+
+/**
+ * 注解处理器
+ * 用于获取对应类型的CODEC
+ * 通过反射对参数进行直接修改
+ *
+ * 这里需要他的具体类型
+ *
+ * 默认兼容基本数据类型 其他自定义类型需要在这里注册CODEC
+ *
+ * 这样在生成CODEC编解码器的时候就会自动引用内容
+ *
+ * @author CooStack
+ */
+object ParticleEmittersRegistryHelper {
+    fun updateEmitter(current: ClassParticleEmitters, other: ClassParticleEmitters) {
+        if (current.getEmittersID() != other.getEmittersID()) return
+        CodecHelper.updateFields(current, other)
+    }
+
+    fun updateEmitter(current: ClassEmitters, other: ClassEmitters) {
+        if (current.getEmittersID() != other.getEmittersID()) return
+        CodecHelper.updateFields(current, other)
+    }
+
+    fun updateEmitter(current: TransformableCParticleEmitter, other: TransformableCParticleEmitter) {
+        if (current.getEmittersID() != other.getEmittersID()) return
+        CodecHelper.updateFields(current, other)
+    }
+
+    fun generateCodec(randomInstance: ClassParticleEmitters): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        return generateClassParticleCodec(randomInstance::class.java)
+    }
+
+    fun generateClassParticleCodec(type: Class<out ClassParticleEmitters>): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        val constructor = type.getConstructor(Vec3::class.java, Level::class.java)
+        return StreamCodec.of(
+            { buf, emitter ->
+                emitter as ClassParticleEmitters
+                ClassParticleEmitters.encodeBase(emitter, buf)
+                encodeFields(type, emitter, buf)
+            },
+            { buf ->
+                constructor.newInstance(Vec3.ZERO, null).apply {
+                    ClassParticleEmitters.decodeBase(this, buf)
+                    decodeFields(type, this, buf)
+                }
+            }
+        )
+    }
+
+    fun generateCodec(randomInstance: TransformableCParticleEmitter): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        return generateTransformableCParticleEmitterCodec(randomInstance::class.java)
+    }
+
+    fun generateTransformableCParticleEmitterCodec(
+        type: Class<out TransformableCParticleEmitter>,
+    ): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        val constructor = type.getConstructor(Vec3::class.java, Level::class.java)
+        return StreamCodec.of(
+            { buf, emitter ->
+                emitter as TransformableCParticleEmitter
+                TransformableCParticleEmitter.encodeBase(emitter, buf)
+                encodeFields(type, emitter, buf)
+            },
+            { buf ->
+                constructor.newInstance(Vec3.ZERO, null).apply {
+                    TransformableCParticleEmitter.decodeBase(this, buf)
+                    decodeFields(type, this, buf)
+                }
+            },
+        )
+    }
+
+    fun generateCodec(randomInstance: ClassEmitters): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        return generateClassEmittersCodec(randomInstance::class.java)
+    }
+
+    fun generateClassEmittersCodec(type: Class<out ClassEmitters>): StreamCodec<RegistryFriendlyByteBuf, ParticleEmitters> {
+        val constructor = type.getConstructor(Vec3::class.java, Level::class.java)
+        return StreamCodec.of(
+            { buf, emitter ->
+                emitter as ClassEmitters
+                ClassEmitters.encodeBase(emitter, buf)
+                encodeFields(type, emitter, buf)
+            },
+            { buf ->
+                constructor.newInstance(Vec3.ZERO, null).apply {
+                    ClassEmitters.decodeBase(this, buf)
+                    decodeFields(type, this, buf)
+                }
+            }
+        )
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun encodeFields(type: Class<*>, emitter: Any, buf: RegistryFriendlyByteBuf) {
+        CodecFieldAccessor.fields(type).forEach { field ->
+            val codec = CodecHelper.registryCodecOf(CodecFieldAccessor.valueType(field)) as
+                    StreamCodec<RegistryFriendlyByteBuf, Any>
+            codec.encode(buf, CodecFieldAccessor.get(field, emitter))
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun decodeFields(type: Class<*>, emitter: Any, buf: RegistryFriendlyByteBuf) {
+        CodecFieldAccessor.fields(type).forEach { field ->
+            val codec = CodecHelper.registryCodecOf(CodecFieldAccessor.valueType(field)) as
+                    StreamCodec<RegistryFriendlyByteBuf, Any>
+            CodecFieldAccessor.set(field, emitter, codec.decode(buf))
+        }
+    }
+}

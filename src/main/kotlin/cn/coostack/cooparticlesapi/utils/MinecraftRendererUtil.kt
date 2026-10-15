@@ -1,0 +1,332 @@
+package cn.coostack.cooparticlesapi.utils
+
+import cn.coostack.cooparticlesapi.extend.minus
+import cn.coostack.cooparticlesapi.mixin.events.world.client.ItemRendererInvoker
+import com.mojang.blaze3d.vertex.PoseStack
+import com.mojang.blaze3d.vertex.VertexConsumer
+import net.minecraft.client.Camera
+import net.minecraft.client.Minecraft
+import net.minecraft.client.renderer.LightTexture
+import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.RenderType
+import net.minecraft.client.renderer.entity.ItemRenderer
+import net.minecraft.client.renderer.texture.OverlayTexture
+import net.minecraft.client.resources.model.BakedModel
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+import org.joml.Quaternionf
+import kotlin.math.abs
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.max
+import kotlin.math.sin
+
+/**
+ * 世界坐标变换
+ * T * R * S * Local
+ * 位移 - 旋转 - 缩放 - 相对位置
+ *
+ */
+object MinecraftRendererUtil {
+    data class AxialBillboardBasis(
+        val axis: Vec3,
+        val face: Vec3,
+        val right: Vec3
+    )
+
+    /**
+     * 变换相对渲染位置到世界坐标位置
+     *
+     * ⚠️ 必须用 try/finally 保证 popPose：`invoker` 里任何异常（例如自定义 RenderType
+     * 构造失败）都会跳过 popPose → 矩阵栈单向增长；
+     * 原版 `renderLevel` 收尾时会 `checkPoseStack` → `PoseStack not empty` → 直接崩游戏。
+     * 这个崩溃极难定位（栈顶只显示 LevelRenderer.checkPoseStack）。
+     *
+     * @param cameraPos 摄像机位置
+     * @param to 渲染目标的世界坐标
+     * @param stack 需要作用变换的stack
+     * @param invoker 在变换范围内进行操作
+     */
+    fun transformTo(cameraPos: Vec3, to: Vec3, stack: PoseStack, invoker: PoseStack.() -> Unit) {
+        val final = to - cameraPos
+        stack.pushPose()
+        try {
+            stack.translate(final.x, final.y, final.z)
+            invoker(stack)
+        } finally {
+            stack.popPose()
+        }
+    }
+
+    /**
+     * 变换相对渲染位置到世界坐标位置
+     *
+     * @param camera 摄像机
+     * @param to 渲染目标的世界坐标
+     * @param stack 需要作用变换的stack
+     * @param invoker 在变换范围内进行操作
+     */
+    fun transformTo(camera: Camera, to: Vec3, stack: PoseStack, invoker: PoseStack.() -> Unit) {
+        transformTo(camera.position, to, stack, invoker)
+    }
+
+    /**
+     * 旋转矩阵 应用欧拉角
+     *
+     * 这里假设 图形的对称轴在z轴上 (如果不在首先要把他变换到Z轴上才行)
+     *
+     * @param stack 模型矩阵
+     * @param yaw 水平角度 角度制
+     * @param pitch 垂直角度 角度制
+     * @param roll  滚动角度 角度制
+     */
+    fun applyRotation(stack: PoseStack, yaw: Float, pitch: Float, roll: Float) {
+        val q = Quaternionf()
+            .rotateY(-yaw.asFloatRadian())
+            .rotateX(-pitch.asFloatRadian())
+            .rotateZ(roll.asFloatRadian())
+
+        stack.mulPose(q)
+    }
+
+    fun applyRotation(stack: PoseStack, q: Quaternionf) {
+        stack.mulPose(q)
+    }
+
+    /**
+     * TODO 未测试有效性
+     *
+     * 如果模型默认对称轴不是z轴 而是其他轴
+     *
+     * 使用此方法正合适
+     *
+     * @param stack 模型矩阵
+     * @param originalAxis 模型所在的轴 （正向）
+     * @param to  目标方向
+     * @param roll 滚动角
+     */
+    fun applyRotationAxisTo(
+        stack: PoseStack,
+        originalAxis: Vec3,
+        to: Vec3,
+        roll: Float
+    ) {
+        val from = originalAxis.toVector3f().normalize()
+        val target = to.toVector3f().normalize()
+        val alignQ = Quaternionf().rotateTo(from, target)
+        val rollQ = Quaternionf().rotateAxis(
+            roll.asFloatRadian(),
+            target.x, target.y, target.z
+        )
+        alignQ.mul(rollQ)
+        stack.mulPose(alignQ)
+    }
+
+    /**
+     * 如果模型默认对称轴不是z轴 而是其他轴
+     *
+     * 使用此方法正合适
+     *
+     * @param stack 模型矩阵
+     * @param originalAxis 模型所在的轴 （正向）
+     * @param yaw 目标水平角度
+     * @param pitch 目标垂直角度
+     * @param roll 滚动角
+     */
+    fun applyRotationAxisTo(
+        stack: PoseStack,
+        originalAxis: Vec3,
+        yaw: Float,
+        pitch: Float,
+        roll: Float
+    ) {
+        applyRotationAxisTo(
+            stack,
+            originalAxis,
+            directionFromYawPitch(yaw, pitch),
+            roll
+        )
+    }
+
+    /**
+     * 将原先的旋转矩阵转回到Z轴
+     * TODO 未测试其有效性 目前是通过计算yaw pitch然后进行反向旋转得到结果
+     *
+     * @param stack 模型矩阵
+     * @param originalAxis 模型当前的 “z”轴
+     */
+    fun resetRotationToZAxis(stack: PoseStack, originalAxis: Vec3, originalRoll: Float) {
+        val yaw = Math3DUtil.getYawFromLocation(originalAxis) * 180 / PI + 90f
+        val pitch = Math3DUtil.getPitchFromLocation(originalAxis) * 180 / PI
+        applyRotation(stack, -yaw.toFloat(), -pitch.toFloat(), -originalRoll)
+    }
+
+    /**
+     * 这里仍然认为stack没有任何旋转， 并且模型是面向Z轴正半轴的
+     * TODO 未测试有效性， 目前来看Math3DUtil在旋转粒子组的时候并无大碍
+     *
+     * @param stack 模型矩阵
+     * @param direction 视角方向
+     * @param roll 滚动角度大小 （角度制）
+     */
+    fun applyRotationLookAt(stack: PoseStack, direction: Vec3, roll: Float) {
+
+        val yawFromLocation = Math3DUtil.getYawFromLocation(direction) * 180 / PI
+        val pitchFromLocation = Math3DUtil.getPitchFromLocation(direction) * 180 / PI
+        applyRotation(stack, yawFromLocation.toFloat(), pitchFromLocation.toFloat(), roll)
+    }
+
+    fun axialBillboardBasis(axisDirection: Vec3, camera: Camera, center: Vec3): AxialBillboardBasis {
+        return axialBillboardBasis(axisDirection, camera.position, center)
+    }
+
+    fun axialBillboardBasis(axisDirection: Vec3, cameraPos: Vec3, center: Vec3): AxialBillboardBasis {
+        val axis = normalizedOr(axisDirection, Vec3(0.0, 1.0, 0.0))
+        val toCamera = cameraPos.subtract(center)
+        val face = if (toCamera.lengthSqr() <= 1.0E-6) {
+            perpendicular(axis)
+        } else {
+            val projected = toCamera.subtract(axis.scale(toCamera.dot(axis)))
+            normalizedOr(projected, perpendicular(axis))
+        }
+        val right = normalizedOr(face.cross(axis), perpendicular(axis))
+        return AxialBillboardBasis(axis, face, right)
+    }
+
+    /**
+     * 在 point 处做一次「平移 → 操作 → 平移回来」。
+     *
+     * ⚠️ 用 try/finally 保证「平移回来」一定执行：`invoker` 里抛异常时
+     * 原来的实现会把矩阵永久留在偏移状态（同样会导致后续渲染错位甚至崩栈）。
+     */
+    fun applyAtPoint(point: Vec3, stack: PoseStack, invoker: PoseStack.() -> Unit) {
+        stack.translate(point.x, point.y, point.z)
+        try {
+            invoker(stack)
+        } finally {
+            stack.translate(-point.x, -point.y, -point.z)
+        }
+    }
+
+    fun renderItemModel(
+        renderer: ItemRenderer,
+        stack: ItemStack,
+        pose: PoseStack,
+        model: BakedModel,
+        light: Int,
+        overlay: Int,
+        consumer: VertexConsumer
+    ) {
+        renderer as ItemRendererInvoker
+        renderer.renderModel(model, stack, light, overlay, pose, consumer)
+    }
+
+    fun renderItemModel(
+        renderer: ItemRenderer,
+        stack: ItemStack,
+        pose: PoseStack,
+        model: BakedModel,
+        light: Int,
+        overlay: Int,
+        buffer: MultiBufferSource,
+        type: RenderType
+    ) {
+        renderItemModel(renderer, stack, pose, model, light, overlay, buffer.getBuffer(type))
+    }
+
+    fun Float.asFloatRadian(): Float {
+        return this * PI.toFloat() / 180f
+    }
+
+    /**
+     * TODO  未测试有效
+     *
+     * @param yaw 角度制 水平角
+     * @param pitch 角度制 垂直角
+     * @return
+     */
+    fun directionFromYawPitch(yaw: Float, pitch: Float): Vec3 {
+        val yawRad = yaw.asFloatRadian() + PI / 2
+        val pitchRad = pitch.asFloatRadian()
+
+        val x = -sin(yawRad) * cos(pitchRad)
+        val y = -sin(pitchRad)
+        val z = cos(yawRad) * cos(pitchRad)
+
+        return Vec3(x, y.toDouble(), z)
+    }
+
+    /**
+     * 在三角形 ABC 上按网格采样（density 越大点越密）
+     * 采样点数约为 (density+1)(density+2)/2
+     */
+    fun sampleTriangle(a: Vec3, b: Vec3, c: Vec3, density: Int, out: MutableList<Vec3>): MutableList<Vec3> {
+        val d = max(1, density)
+        for (i in 0..d) {
+            for (j in 0..(d - i)) {
+                val u = i.toDouble() / d
+                val v = j.toDouble() / d
+                val w = 1.0 - u - v
+
+
+                val p = a.scale(w).add(b.scale(u)).add(c.scale(v))
+                out.add(p)
+            }
+        }
+        return out
+    }
+
+    /** 四边形拆成两个三角形：(0,1,2) + (0,2,3) */
+    fun sampleQuad(v0: Vec3, v1: Vec3, v2: Vec3, v3: Vec3, density: Int, out: MutableList<Vec3>): MutableList<Vec3> {
+        sampleTriangle(v0, v1, v2, density, out)
+        sampleTriangle(v0, v2, v3, density, out)
+        return out
+    }
+
+    /**
+     * 光速渲染一个stack，渲染一个物品模型的重复工作超级的多
+     *
+     * 这里的模型并没有处理过45度的问题， 如果需要初始偏移可能需要其他实现
+     *
+     * @param item 栈物品
+     * @param world 世界
+     * @param consumer 渲染的类型 （从RenderType/RenderLayer获取)
+     * @param modelMatrixStack 模型矩阵
+     */
+    fun fastRenderItem(
+        item: ItemStack,
+        world: Level,
+        consumer: VertexConsumer,
+        modelMatrixStack: PoseStack,
+        yaw: Float,
+        pitch: Float,
+        roll: Float,
+        xScale: Float,
+        yScale: Float,
+        zScale: Float,
+        light: Int = LightTexture.pack(15, 15)
+    ) {
+        val itemRenderer = Minecraft.getInstance().itemRenderer ?: return
+        val model = itemRenderer.getModel(item, world, null, 0)
+        applyRotation(modelMatrixStack, yaw, pitch, roll)
+        modelMatrixStack.scale(xScale, yScale, zScale)
+        applyAtPoint(
+            Vec3(-0.5, -0.5, -0.5), modelMatrixStack
+        ) {
+            renderItemModel(
+                itemRenderer, item, modelMatrixStack, model, light,
+                OverlayTexture.NO_OVERLAY, consumer
+            )
+        }
+    }
+
+    private fun perpendicular(axis: Vec3): Vec3 {
+        val base = if (abs(axis.y) < 0.9) Vec3(0.0, 1.0, 0.0) else Vec3(1.0, 0.0, 0.0)
+        return normalizedOr(axis.cross(base), Vec3(1.0, 0.0, 0.0))
+    }
+
+    private fun normalizedOr(value: Vec3, fallback: Vec3): Vec3 {
+        return if (value.lengthSqr() <= 1.0E-6) fallback.normalize() else value.normalize()
+    }
+}

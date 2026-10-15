@@ -1,0 +1,113 @@
+package cn.coostack.cooparticlesapi.test.options.display
+
+import cn.coostack.cooparticlesapi.compat.mc1201.normalAt
+import cn.coostack.cooparticlesapi.compat.mc1201.vertexAt
+import cn.coostack.cooparticlesapi.compat.mc1201.setLightCompat
+import cn.coostack.cooparticlesapi.annotations.CooAutoRegister
+import cn.coostack.cooparticlesapi.annotations.CodecField
+import cn.coostack.cooparticlesapi.annotations.display.handle.DisplayEntityRegistryHelper
+import cn.coostack.cooparticlesapi.display.CooParticlesRenderTypes
+import cn.coostack.cooparticlesapi.display.DisplayEntity
+import cn.coostack.cooparticlesapi.extend.minus
+import cn.coostack.cooparticlesapi.mixin.events.world.client.ItemRendererInvoker
+import cn.coostack.cooparticlesapi.utils.MinecraftRendererUtil
+import com.mojang.blaze3d.vertex.PoseStack
+import net.minecraft.client.Camera
+import net.minecraft.client.Minecraft
+import net.minecraft.client.renderer.LightTexture
+import net.minecraft.client.renderer.MultiBufferSource
+import net.minecraft.client.renderer.RenderType
+import net.minecraft.client.renderer.texture.OverlayTexture
+import cn.coostack.cooparticlesapi.compat.mc1201.RegistryFriendlyByteBuf
+import cn.coostack.cooparticlesapi.compat.mc1201.StreamCodec
+import net.minecraft.server.level.ServerLevel
+import net.minecraft.world.inventory.InventoryMenu
+import net.minecraft.world.item.Items
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+import org.joml.Matrix4f
+
+/**
+ * 展示实体（自定义版）
+ * 示例代码
+ *
+ * @constructor
+ * TODO
+ *
+ * @param pos
+ * @param world
+ */
+@CooAutoRegister
+class TestBlockDisplayEntity(pos: Vec3, world: Level?) : DisplayEntity(pos, world) {
+    @CodecField
+    var direction = Vec3(0.0, 1.0, 0.0)
+
+    override fun render(
+        view: Matrix4f,
+        proj: Matrix4f,
+        modelMatrixStack: PoseStack,
+        buffer: MultiBufferSource,
+        delta: Float,
+        camera: Camera
+    ) {
+        modelMatrixStack.pushPose()
+        try {
+            val renderer = Minecraft.getInstance().itemRenderer
+            val item = Items.WHITE_CONCRETE.defaultInstance
+            val seaLantern = renderer.getModel(item, world, null, 1)
+            val invoker = renderer as ItemRendererInvoker
+            val consumer = buffer.getBuffer(
+                CooParticlesRenderTypes.entityCutoutEmissive(InventoryMenu.BLOCK_ATLAS, 25f)
+            )
+
+            MinecraftRendererUtil.applyAtPoint(renderCenterOffset(), modelMatrixStack) {
+                scale(5f, 5f, 5f)
+            }
+            invoker.renderModel(
+                seaLantern,
+                item,
+                LightTexture.FULL_BRIGHT,
+                OverlayTexture.NO_OVERLAY,
+                modelMatrixStack,
+                consumer
+            )
+        } finally {
+
+
+            modelMatrixStack.popPose()
+        }
+
+        MinecraftRendererUtil.applyAtPoint(renderCenterOffset(), modelMatrixStack) {
+            buffer.getBuffer(RenderType.LINES)
+                .vertexAt(modelMatrixStack.last().pose(), 0f, 0f, -2f)
+                .normalAt(modelMatrixStack.last().normal(), 0f, 1f, 0f)
+                .color(255, 255, 255, 255)
+                .setLightCompat(LightTexture.FULL_BRIGHT)
+                .vertexAt(modelMatrixStack.last().pose(), 0f, 0f, 2f)
+                .normalAt(modelMatrixStack.last().normal(), 0f, 1f, 0f)
+                .color(255, 255, 128, 255)
+                .setLightCompat(LightTexture.FULL_BRIGHT)
+        }
+
+    }
+
+    override fun tick() {
+        super.tick()
+        lookAt(direction)
+
+        if (world!!.isClientSide) {
+            return
+        }
+        val server = world as ServerLevel
+        val player = server.players().minByOrNull {
+            it.position().distanceTo(pos)
+        } ?: return
+
+        direction = player.eyePosition - pos
+    }
+
+    override fun getCodec(): StreamCodec<in RegistryFriendlyByteBuf, DisplayEntity> {
+        return DisplayEntityRegistryHelper.generateCodec(this)
+    }
+
+}

@@ -1,0 +1,56 @@
+package cn.coostack.cooparticlesapi.annotations.display.handle
+
+import cn.coostack.cooparticlesapi.annotations.codec.CodecHelper
+import cn.coostack.cooparticlesapi.annotations.codec.CodecFieldAccessor
+import cn.coostack.cooparticlesapi.display.DisplayEntity
+import cn.coostack.cooparticlesapi.compat.mc1201.RegistryFriendlyByteBuf
+import cn.coostack.cooparticlesapi.compat.mc1201.StreamCodec
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+
+object DisplayEntityRegistryHelper {
+
+    /**
+     * 生成编解码器
+     *
+     * 必须提供构造器 (pos: Vec3, world: Level?)
+     *
+     * @param randomInstance 任意一个displayer实例 不管有没有加入到游戏中
+     * @return 这个实例按照注解的参数的编解码器
+     */
+    fun generateCodec(randomInstance: DisplayEntity): StreamCodec<in RegistryFriendlyByteBuf, DisplayEntity> {
+        val type = randomInstance::class.java
+        val constructor = type.getConstructor(Vec3::class.java, Level::class.java)
+        return StreamCodec.of(
+            { buf, display ->
+                display as DisplayEntity
+                DisplayEntity.encodeBase(display, buf)
+                val fields = CodecFieldAccessor.fields(type)
+
+                fields.forEach {
+                    it.isAccessible = true
+
+                    @Suppress("UNCHECKED_CAST")
+                    val codec: StreamCodec<RegistryFriendlyByteBuf, Any> =
+                        CodecHelper.registryCodecOf(CodecFieldAccessor.valueType(it)) as StreamCodec<RegistryFriendlyByteBuf, Any>
+                    codec.encode(buf, CodecFieldAccessor.get(it, display))
+                }
+            }, { buf ->
+                constructor.newInstance(Vec3.ZERO, null).apply {
+                    DisplayEntity.decodeBase(this, buf)
+                    val fields = CodecFieldAccessor.fields(type)
+
+                    fields.forEach {
+                        it.isAccessible = true
+                        @Suppress("UNCHECKED_CAST")
+                        val codec: StreamCodec<RegistryFriendlyByteBuf, Any> =
+                            CodecHelper.registryCodecOf(CodecFieldAccessor.valueType(it)) as StreamCodec<RegistryFriendlyByteBuf, Any>
+
+                        val value = codec.decode(buf)
+                        CodecFieldAccessor.set(it, this, value)
+                    }
+                }
+            }
+        )
+    }
+}

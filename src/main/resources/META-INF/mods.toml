@@ -1,0 +1,31 @@
+modLoader="kotlinforforge"
+loaderVersion="[4,)"
+license="GPL-3.0"
+issueTrackerURL="https://github.com/CooStack/CooParticlesAPI/issues"
+
+[[mods]]
+modId="cooparticlesapi"
+version="2.5.6.3-port1201"
+displayName="CooParticlesAPI"
+description='''CooParticlesAPI 1.20.1 Forge port'''
+
+[[dependencies.cooparticlesapi]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.cooparticlesapi]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20.1,1.20.2)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.cooparticlesapi]]
+    modId="kotlinforforge"
+    mandatory=true
+    versionRange="[4.12.0,)"
+    ordering="AFTER"
+    side="BOTH"

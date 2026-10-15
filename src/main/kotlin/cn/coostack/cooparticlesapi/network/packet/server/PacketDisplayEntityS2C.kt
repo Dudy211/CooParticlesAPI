@@ -1,0 +1,39 @@
+package cn.coostack.cooparticlesapi.network.packet.server
+
+import cn.coostack.cooparticlesapi.CooParticlesConstants
+import net.minecraft.network.FriendlyByteBuf
+import cn.coostack.cooparticlesapi.compat.mc1201.StreamCodec
+import cn.coostack.cooparticlesapi.compat.mc1201.CustomPacketPayload
+import net.minecraft.resources.ResourceLocation
+import java.util.UUID
+
+class PacketDisplayEntityS2C(
+    val uuid: UUID,
+    val type: String,
+    val data: ByteArray,
+    val removed: Boolean = false
+) : CustomPacketPayload {
+    companion object {
+        private val identifierID = ResourceLocation.fromNamespaceAndPath(CooParticlesConstants.MOD_ID, "display_entity")
+        val payloadID = CustomPacketPayload.Type<PacketDisplayEntityS2C>(identifierID)
+        val CODEC: StreamCodec<FriendlyByteBuf, PacketDisplayEntityS2C> =
+            CustomPacketPayload.codec({ packet, buf ->
+                buf.writeUtf(packet.type)
+                buf.writeUUID(packet.uuid)
+                buf.writeBoolean(packet.removed)
+                buf.writeInt(packet.data.size)
+                buf.writeBytes(packet.data)
+            }, { buf ->
+                val type = buf.readUtf()
+                val uuid = buf.readUUID()
+                val removed = buf.readBoolean()
+                val size = buf.readInt()
+                val data = ByteArray(size).also { buf.readBytes(it) }
+                PacketDisplayEntityS2C(uuid, type, data, removed)
+            })
+    }
+
+    override fun type(): CustomPacketPayload.Type<out CustomPacketPayload> {
+        return payloadID
+    }
+}

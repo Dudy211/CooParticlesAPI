@@ -1,0 +1,398 @@
+package cn.coostack.cooparticlesapi.renderer.utils
+
+import cn.coostack.cooparticlesapi.renderer.model.RenderEntityModelVertex
+import cn.coostack.cooparticlesapi.renderer.shader.data.VertexData
+import org.joml.Vector2f
+import org.joml.Vector3f
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
+
+object ShaderUtil {
+    /**
+     * 执行 `ShaderUtil` 定义的 `vertexBuilder` 操作；输入和返回值用于该组件当前的渲染职责。
+     *
+     * 示例：`vertexBuilder(block = block)`。
+     *
+     * @param block 在当前生命周期或数据上下文中执行的回调
+     *
+     * @return 当前操作计算、更新或查询得到的结果
+     */
+    fun vertexBuilder(block: RenderVertexBuilder.() -> Unit = {}): RenderVertexBuilder {
+        return RenderVertexBuilder().apply(block)
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genVertexData` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genVertexData(block = block)`。
+     *
+     * @param block 在当前生命周期或数据上下文中执行的回调
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genVertexData(block: RenderVertexBuilder.() -> Unit): List<VertexData> {
+        return vertexBuilder(block).createVertexData()
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genModelVertices` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genModelVertices(block = block)`。
+     *
+     * @param block 在当前生命周期或数据上下文中执行的回调
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genModelVertices(block: RenderVertexBuilder.() -> Unit): List<RenderEntityModelVertex> {
+        return vertexBuilder(block).create()
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genSquare` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genSquare(w = w, h = h)`。
+     *
+     * @param w 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param h 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genSquare(w: Float, h: Float): List<VertexData> {
+        val p1 = Vector3f(-w / 2, -h / 2, 0f)
+        val p2 = Vector3f(w / 2, h / 2, 0f)
+        return genSquare(p1, p2)
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genSquare` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genSquare(p1 = p1, p2 = p2)`。
+     *
+     * @param p1 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p2 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genSquare(p1: Vector3f, p2: Vector3f): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+        val p3 = Vector3f(p2.x, p1.y, p1.z)
+        val p4 = Vector3f(p1.x, p2.y, p2.z)
+        res.add(VertexData(p1))
+        res.add(VertexData(p3))
+        res.add(VertexData(p2))
+
+        res.add(VertexData(p1))
+        res.add(VertexData(p2))
+        res.add(VertexData(p4))
+        return res
+    }
+
+    /**
+     * 生成圆柱顶点 (三角形)
+     * 不包括上下两面的底面
+     * @param tessellate 细分程度 (至少为2)
+     */
+    fun genCylinder(r: Float, tessellate: Float, height: Float): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+        require(height > 0 && r > 0 && tessellate >= 2)
+        val step = 2 * PI.toFloat() / tessellate
+        var current = 0f
+        while (current < 2 * PI) {
+            val x1 = r * cos(current)
+            val x2 = r * cos(current + step)
+            val z1 = r * sin(current)
+            val z2 = r * sin(current + step)
+            res.addAll(
+                genSquare(
+                    Vector3f(x1, height, z1),
+                    Vector3f(x2, height, z2),
+                    Vector3f(x2, 0f, z2),
+                    Vector3f(x1, 0f, z1),
+                )
+            )
+            current += step
+        }
+
+        return res
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genSquareUV` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genSquareUV(p1 = p1, p2 = p2, p3 = p3, p4 = p4)`。
+     *
+     * @param p1 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p2 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p3 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p4 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genSquareUV(p1: Vector3f, p2: Vector3f, p3: Vector3f, p4: Vector3f): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+        res.add(VertexData(p1, Vector2f(0f, 0f)))
+        res.add(VertexData(p2, Vector2f(1f, 0f)))
+        res.add(VertexData(p4, Vector2f(0f, 1f)))
+
+        res.add(VertexData(p2, Vector2f(1f, 0f)))
+        res.add(VertexData(p3, Vector2f(1f, 1f)))
+        res.add(VertexData(p4, Vector2f(0f, 1f)))
+        return res
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genSquareUVScreen` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genSquareUVScreen(p1 = p1, p2 = p2, p3 = p3, p4 = p4)`。
+     *
+     * @param p1 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p2 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p3 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p4 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genSquareUVScreen(p1: Vector3f, p2: Vector3f, p3: Vector3f, p4: Vector3f): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+        res.add(VertexData(p1, Vector2f(0f, 1f)))
+        res.add(VertexData(p2, Vector2f(1f, 1f)))
+        res.add(VertexData(p4, Vector2f(0f, 0f)))
+
+        res.add(VertexData(p2, Vector2f(1f, 1f)))
+        res.add(VertexData(p3, Vector2f(1f, 0f)))
+        res.add(VertexData(p4, Vector2f(0f, 0f)))
+        return res
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genSquare` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genSquare(p1 = p1, p2 = p2, p3 = p3, p4 = p4)`。
+     *
+     * @param p1 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p2 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p3 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @param p4 当前操作需要的输入值；其语义由方法名和所属组件共同限定
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genSquare(p1: Vector3f, p2: Vector3f, p3: Vector3f, p4: Vector3f): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+        res.add(VertexData(p1))
+        res.add(VertexData(p2))
+        res.add(VertexData(p4))
+
+        res.add(VertexData(p2))
+        res.add(VertexData(p3))
+        res.add(VertexData(p4))
+        return res
+    }
+
+    /**
+     * 根据输入和 `ShaderUtil` 当前配置创建 `genBox` 结果；返回对象保留本次配置的语义。
+     *
+     * 示例：`genBox()`。
+     *
+     * @return 根据当前输入生成的新对象或数据结果
+     */
+    fun genBox(): List<VertexData> {
+        val up = genSquareUV(
+            Vector3f(-0.5f, 0.5f, 0.5f),
+            Vector3f(0.5f, 0.5f, 0.5f),
+            Vector3f(0.5f, 0.5f, -0.5f),
+            Vector3f(-0.5f, 0.5f, -0.5f)
+        )
+        val down = genSquareUV(
+            Vector3f(-0.5f, -0.5f, 0.5f),
+            Vector3f(0.5f, -0.5f, 0.5f),
+            Vector3f(0.5f, -0.5f, -0.5f),
+            Vector3f(-0.5f, -0.5f, -0.5f)
+        )
+        val left = genSquareUV(
+            Vector3f(-0.5f, -0.5f, 0.5f),
+            Vector3f(-0.5f, 0.5f, 0.5f),
+            Vector3f(-0.5f, 0.5f, -0.5f),
+            Vector3f(-0.5f, -0.5f, -0.5f),
+        )
+        val right = genSquareUV(
+            Vector3f(0.5f, -0.5f, 0.5f),
+            Vector3f(0.5f, 0.5f, 0.5f),
+            Vector3f(0.5f, 0.5f, -0.5f),
+            Vector3f(0.5f, -0.5f, -0.5f),
+        )
+        val front = genSquareUV(
+            Vector3f(-0.5f, 0.5f, 0.5f),
+            Vector3f(0.5f, 0.5f, 0.5f),
+            Vector3f(0.5f, -0.5f, 0.5f),
+            Vector3f(-0.5f, -0.5f, 0.5f),
+        )
+        val back = genSquareUV(
+            Vector3f(-0.5f, 0.5f, -0.5f),
+            Vector3f(0.5f, 0.5f, -0.5f),
+            Vector3f(0.5f, -0.5f, -0.5f),
+            Vector3f(-0.5f, -0.5f, -0.5f),
+        )
+        val res = ArrayList<VertexData>()
+        res.also {
+            it.addAll(up)
+            it.addAll(down)
+            it.addAll(left)
+            it.addAll(right)
+            it.addAll(front)
+            it.addAll(back)
+        }
+        return res
+    }
+
+    /**
+     * 使用原有分片方式生成棱块球。
+     *
+     * 极点处会保留退化三角形，适合需要棱面效果的低模球体。
+     *
+     * @param r 球的半径
+     * @param stacks 纬度分片数量
+     * @param slices 经度分片数量
+     */
+    fun genPolyBall(r: Float, stacks: Int, slices: Int): List<VertexData> {
+        val res = mutableListOf<VertexData>()
+
+        for (i in 0 until stacks) {
+            val phi1 = i * PI.toFloat() / stacks
+            val phi2 = (i + 1) * PI.toFloat() / stacks
+            val r1 = r * sin(phi1)
+            val r2 = r * sin(phi2)
+            val y1 = r * cos(phi1)
+            val y2 = r * cos(phi2)
+
+            for (j in 0 until slices) {
+                val theta1 = j * 2 * PI.toFloat() / slices
+                val theta2 = (j + 1) * 2 * PI.toFloat() / slices
+                val p1 = Vector3f(r1 * cos(theta1), y1, r1 * sin(theta1))
+                val p2 = Vector3f(r1 * cos(theta2), y1, r1 * sin(theta2))
+                val p3 = Vector3f(r2 * cos(theta1), y2, r2 * sin(theta1))
+                val p4 = Vector3f(r2 * cos(theta2), y2, r2 * sin(theta2))
+                res.addAll(genQuad(p1, p2, p4, p3))
+            }
+        }
+
+        for (j in 0 until slices) {
+            val theta1 = j * 2 * PI.toFloat() / slices
+            val theta2 = (j + 1) * 2 * PI.toFloat() / slices
+            val northPole = Vector3f(0f, r, 0f)
+            val p1 = Vector3f(
+                r * sin(0f) * cos(theta1),
+                r * cos(0f),
+                r * sin(0f) * sin(theta1)
+            )
+            val p2 = Vector3f(
+                r * sin(0f) * cos(theta2),
+                r * cos(0f),
+                r * sin(0f) * sin(theta2)
+            )
+            res.add(VertexData(northPole))
+            res.add(VertexData(p1))
+            res.add(VertexData(p2))
+        }
+
+        for (j in 0 until slices) {
+            val theta1 = j * 2 * PI.toFloat() / slices
+            val theta2 = (j + 1) * 2 * PI.toFloat() / slices
+            val southPole = Vector3f(0f, -r, 0f)
+            val p1 = Vector3f(
+                r * sin(PI.toFloat()) * cos(theta1),
+                r * cos(PI.toFloat()),
+                r * sin(PI.toFloat()) * sin(theta1)
+            )
+            val p2 = Vector3f(
+                r * sin(PI.toFloat()) * cos(theta2),
+                r * cos(PI.toFloat()),
+                r * sin(PI.toFloat()) * sin(theta2)
+            )
+            res.add(VertexData(southPole))
+            res.add(VertexData(p2))
+            res.add(VertexData(p1))
+        }
+
+        return res
+    }
+
+    /**
+     * 按经纬线分片生成无退化球面三角网格。
+     *
+     * `stacks` 表示从北极到南极的纬度带数量，`slices` 表示每个纬度带绕 Y 轴的经度分片数量。
+     * 两个极点使用三角扇连接到第一条和最后一条纬线，不会生成退化三角形。
+     *
+     * @param r 球的半径，必须大于零
+     * @param stacks 从北极到南极的纬度带数量，至少为 2
+     * @param slices 每条纬线的经度分片数量，至少为 3
+     */
+    fun genBall(r: Float, stacks: Int, slices: Int): List<VertexData> {
+        require(r > 0f) { "r must be greater than zero" }
+        require(stacks >= 2) { "stacks must be at least 2" }
+        require(slices >= 3) { "slices must be at least 3" }
+
+        val res = ArrayList<VertexData>(6 * slices * (stacks - 1))
+        val fullAngle = 2f * PI.toFloat()
+        for (i in 0 until stacks) {
+            val phi1 = i * PI.toFloat() / stacks
+            val phi2 = (i + 1) * PI.toFloat() / stacks
+
+            for (j in 0 until slices) {
+                val theta1 = j * fullAngle / slices
+                val theta2 = (j + 1) * fullAngle / slices
+                val p1 = ballPoint(r, phi1, theta1)
+                val p2 = ballPoint(r, phi1, theta2)
+                val p3 = ballPoint(r, phi2, theta1)
+                val p4 = ballPoint(r, phi2, theta2)
+
+                when (i) {
+                    0 -> res.addAll(genTriangle(Vector3f(0f, r, 0f), p4, p3))
+                    stacks - 1 -> res.addAll(genTriangle(p1, p2, Vector3f(0f, -r, 0f)))
+                    else -> res.addAll(genQuad(p1, p2, p4, p3))
+                }
+            }
+        }
+
+        return res
+    }
+
+    private fun ballPoint(r: Float, phi: Float, theta: Float): Vector3f {
+        val ringRadius = r * sin(phi)
+        return Vector3f(
+            ringRadius * cos(theta),
+            r * cos(phi),
+            ringRadius * sin(theta)
+        )
+    }
+
+    private fun genTriangle(p1: Vector3f, p2: Vector3f, p3: Vector3f): List<VertexData> {
+        return listOf(
+            VertexData(p1),
+            VertexData(p2),
+            VertexData(p3)
+        )
+    }
+
+    private fun genQuad(p1: Vector3f, p2: Vector3f, p3: Vector3f, p4: Vector3f): List<VertexData> {
+        return listOf(
+            VertexData(p1),
+            VertexData(p2),
+            VertexData(p3),
+            VertexData(p1),
+            VertexData(p3),
+            VertexData(p4)
+        )
+    }
+}

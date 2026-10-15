@@ -1,0 +1,16 @@
+package cn.coostack.cooparticlesapi.renderer.runtime
+
+import cn.coostack.cooparticlesapi.renderer.RenderEntity
+import net.minecraft.network.FriendlyByteBuf
+import cn.coostack.cooparticlesapi.compat.mc1201.StreamCodec
+
+/**
+ * 客户端识别某个 RenderEntity 类型所需的最小描述。
+ *
+ * @property codec 收到网络同步数据后，用于恢复该实体实例的解码器
+ * @property rendererFactory 供注册表惰性创建该类型共享 renderer 的工厂；为空时表示客户端只能解码，不能正常进入渲染运行时
+ */
+data class ClientRenderEntityType(
+    val codec: StreamCodec<FriendlyByteBuf, RenderEntity>,
+    val rendererFactory: (() -> RenderEntityRenderer<out RenderEntity>)? = null
+)

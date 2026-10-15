@@ -1,0 +1,133 @@
+package cn.coostack.cooparticlesapi.test.options.particle.emitter
+
+import cn.coostack.cooparticlesapi.annotations.CooAutoRegister
+import cn.coostack.cooparticlesapi.annotations.CodecField
+import cn.coostack.cooparticlesapi.cparticle.CParticleColorCurve
+import cn.coostack.cooparticlesapi.cparticle.CParticleCurve
+import cn.coostack.cooparticlesapi.cparticle.CParticleUpdateMode
+import cn.coostack.cooparticlesapi.cparticle.force.CParticleForce
+import cn.coostack.cooparticlesapi.cparticle.force.CParticleForceSink
+import cn.coostack.cooparticlesapi.network.particle.emitters.*
+import cn.coostack.cooparticlesapi.network.particle.emitters.command.*
+import cn.coostack.cooparticlesapi.network.particle.emitters.command.curve.*
+import cn.coostack.cooparticlesapi.particles.ParticleCameraOption
+import cn.coostack.cooparticlesapi.particles.control.ParticleControler
+import cn.coostack.cooparticlesapi.particles.impl.*
+import cn.coostack.cooparticlesapi.supports.TextureSheetsEnum
+import cn.coostack.cooparticlesapi.utils.RelativeLocation
+import cn.coostack.cooparticlesapi.utils.builder.PointsBuilder
+import net.minecraft.world.level.Level
+import net.minecraft.world.phys.Vec3
+import org.joml.Vector3f
+import kotlin.math.*
+import kotlin.random.Random
+
+@CooAutoRegister
+class TestGPUEmitter(pos: Vec3, world: Level?) : AutoParticleEmitters(pos, world) {
+    override fun submitCParticleForces(sink: CParticleForceSink) {
+        sink.submit(CParticleForce.ExpDrag(damping = 0.05, minSpeed = 0.0, linear = 0.0))
+    }
+
+    private val data1 = SimpleRandomParticleData()
+
+    private val emitter1SizeX = BezierKeyframeFloatCurve(listOf(BezierFloatKeyframe(time = 0.0, value = 0.0, outX = 39.889, outY = 2.45, inX = -33.0, inY = 0.0), BezierFloatKeyframe(time = 1.0, value = 1.0, outX = 33.0, outY = 0.0, inX = -58.172, inY = 2.639)))
+    private val emitter1SizeY = BezierKeyframeFloatCurve(listOf(BezierFloatKeyframe(time = 0.0, value = 0.972, outX = 65.097, outY = 0.925, inX = -33.0, inY = 0.0), BezierFloatKeyframe(time = 1.0, value = 1.0, outX = 33.0, outY = 0.0, inX = -44.875, inY = 5.717)))
+    private val emitter1Opacity = BezierKeyframeFloatCurve(listOf(BezierFloatKeyframe(time = 0.0, value = 0.0, outX = 66.755, outY = -1.80356, inX = -33.0, inY = 0.0), BezierFloatKeyframe(time = 1.0, value = 0.0, outX = 33.0, outY = 0.0, inX = -36.412, inY = 11.33474)))
+    @CodecField
+    var template = ControlableCParticleData().apply {
+        velocity = Vec3(0.0, 0.12, 0.0)
+        uniformSize = false
+        weightSize = 1.0F
+        heightSize = 1.0F
+        visibleRange = 128.0F
+        color = Vector3f(1F, 1F, 1F)
+        alpha = (100.0 / 100.0).toFloat()
+        light = -1
+        setTextureSheet(TextureSheetsEnum.ADDITION_BLEND_TRANSLUCENT)
+        cameraOption = ParticleCameraOption.AXIS_BILLBOARD
+        axis = Vec3(0.0, 1.0, 0.0)
+        roll = (0.0 * PI / 180.0).toFloat()
+        speedLimit = 32.0
+        sign = 0
+        effect = ControlableEndRodEffect(uuid)
+        updateMode = CParticleUpdateMode.STATIC
+        blockCollision = true
+        alphaCurve = CParticleCurve.fromFloatCurve(emitter1Opacity)
+        scaleXCurve = CParticleCurve.fromFloatCurve(emitter1SizeX)
+        scaleYCurve = CParticleCurve.fromFloatCurve(emitter1SizeY)
+        colorCurve = CParticleColorCurve.linear(Vector3f(0.996078F, 0.521569F, 0.262745F), Vector3f(1.0F, 0.878431F, 0.439216F))
+        randomAgePreTick = false
+    }
+
+    init {
+        delay = 1
+        maxTick = -1
+    }
+
+    override fun doTick() {
+    }
+
+    override fun genParticles(lerpProgress: Float): List<Pair<ControlableParticleData, RelativeLocation>> {
+        val res = mutableListOf<Pair<ControlableParticleData, RelativeLocation>>()
+
+
+        if (tick >= 0) {
+            data1.apply {
+                minAge = 10
+                maxAge = 20
+                minCount = 10
+                maxCount = 20
+                minSize = 0.1
+                maxSize = 0.2
+                minSpeed = 0.2
+                maxSpeed = 0.6
+                leftColor = Vector3f(0.996078F, 0.521569F, 0.262745F)
+                rightColor = Vector3f(1.0F, 0.878431F, 0.439216F)
+            }
+            res.addAll(
+                PointsBuilder()
+                    .addWith { List(data1.getRandomCount()) { RelativeLocation(0.0, 0.0, 0.0) } }
+                    .createWithoutClone()
+                    .map { rel ->
+                        val speed = data1.getRandomSpeed()
+                        val particleSize = data1.getRandomSize()
+                        val velocityJitter = Vec3((Random.nextDouble() * 2.0 - 1.0) * 0.04, (Random.nextDouble() * 2.0 - 1.0) * 0.04, (Random.nextDouble() * 2.0 - 1.0) * 0.04)
+                        val baseDir = template.velocity.add(velocityJitter)
+                        val velocity = if (baseDir.lengthSqr() < 1e-8) Vec3.ZERO else baseDir.normalize().scale(speed)
+                        template.clone().apply {
+                            maxAge = data1.getRandomParticleMaxAge()
+                            this.color = Vector3f(1F, 1F, 1F)
+                            uniformSize = false
+                            weightSize = (particleSize * template.weightSize)
+                            heightSize = (particleSize * template.heightSize)
+                            this.velocity = velocity
+                        } to rel
+                    }
+            )
+        }
+
+        return res
+    }
+
+    override fun singleParticleAction(
+        controler: ParticleControler,
+        data: ControlableParticleData,
+        spawnPos: RelativeLocation,
+        spawnWorld: Level,
+        particleLerpProgress: Float,
+        posLerpProgress: Float
+    ) {
+        controler.addPreTickAction {
+            val lifeProgress = if (this.lifetime <= 0) 1.0 else (this.currentAge.toDouble() / this.lifetime.toDouble()).coerceIn(0.0, 1.0)
+            when (data.sign) {
+                template.sign -> {
+                    this.color = data1.getInterpolatedColor(lifeProgress)
+                    this.uniformSize = false
+                    this.weightSize = (data.weightSize * emitter1SizeX.sample(lifeProgress)).toFloat()
+                    this.heightSize = (data.heightSize * emitter1SizeY.sample(lifeProgress)).toFloat()
+                    this.particleAlpha = (emitter1Opacity.sample(lifeProgress)).toFloat().coerceIn(0F, 1F)
+                }
+            }
+        }
+    }
+}

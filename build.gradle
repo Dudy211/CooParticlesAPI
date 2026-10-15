@@ -1,0 +1,273 @@
+plugins {
+    id 'java'
+    id 'org.jetbrains.kotlin.jvm' version "${kotlin_version}"
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7.38'
+}
+
+version = project.version
+group = project.group
+
+base {
+    archivesName = "${mod_id}-forge-${minecraft_version}"
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(17) }
+    withSourcesJar()
+}
+
+minecraft {
+    mappings channel: 'official', version: minecraft_version
+
+    // AccessTransformer：把 MC 里 protected/private 的渲染字段开放为 public
+    //
+    // ⚠️⚠️ 这一行**绝对不能删**（曾经被注释成 "AT removed: Kotlin 侧用反射访问 protected 字段"）。
+    // 删掉后：dev 环境 AT 不生效 → Kotlin 编译期直接报 "Cannot access ... it is protected"；
+    // 更糟的是有人把原来直接引用的代码改成了 getDeclaredField("NO_TRANSPARENCY") 反射 ——
+    // 生产环境字段叫 f_110134_，反射必然抛 NoSuchFieldException（每帧 4000 次），
+    // 异常打断 PoseStack 的 push/pop 配对 → "Pose stack not empty" → 一进世界就崩。
+    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+
+    runs {
+        client {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods { "${mod_id}" { source sourceSets.main } }
+        }
+        server {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+            mods { "${mod_id}" { source sourceSets.main } }
+        }
+        data {
+            workingDirectory project.file('run')
+            args '--mod', mod_id, '--all',
+                 '--output', file('src/generated/resources/').getAbsolutePath(),
+                 '--existing', file('src/main/resources/').getAbsolutePath()
+            mods { "${mod_id}" { source sourceSets.main } }
+        }
+    }
+}
+
+sourceSets.main {
+    resources {
+        srcDir 'src/main/resources'
+        srcDir 'src/generated/resources'
+    }
+}
+
+repositories {
+    // ⚠️ 不用 mavenCentral()：本环境 repo1.maven.org 只解析到 IPv6，走不通（超时）。
+    // 用阿里云 public 镜像（= Maven Central 的完整镜像）。
+    maven {
+        name = 'AliyunCentral'
+        url = 'https://maven.aliyun.com/repository/public'
+        allowInsecureProtocol = false
+    }
+    maven {
+        name = 'MinecraftForge'
+        url = 'https://maven.minecraftforge.net/'
+    }
+    maven {
+        name = 'KotlinForForge'
+        url = 'https://thedarkcolour.github.io/KotlinForForge/'
+    }
+    maven {
+        name = 'Aliyun'
+        url = 'https://maven.aliyun.com/repository/public'
+    }
+    maven {
+        url = uri('https://api.modrinth.com/maven')
+        content { includeGroup('maven.modrinth') }
+    }
+    flatDir { dirs 'depend', 'compile_only_depend' }
+}
+
+
+// MixinGradle：声明 refmap，编译期生成 official → SRG 的映射表
+mixin {
+    add sourceSets.main, "cooparticlesapi.refmap.json"
+    config "cooparticlesapi.mixins.json"
+    // ★ 2026-10-05：Embeddium（1.20.1 Forge 的 Sodium）兼容组。
+    // 单独一个 config 文件 —— 因为要挂自己的 MixinPlugin 做条件加载，
+    // 没装 Embeddium 时整组 mixin 都不应用（required:false）。
+    config "cooparticlesapi.sodium.mixins.json"
+}
+
+// ── 离线构建兼容：把 kotlin-stdlib 传递依赖的 annotations 钉到缓存里已有的版本 ──
+// kotlin-stdlib:2.2.21 声明 org.jetbrains:annotations:23.0.0，本地缓存只有 24.0.1/13.0，
+// `--offline` 会直接失败。API 完全向后兼容，强制 24.0.1 即可。
+configurations.configureEach {
+    resolutionStrategy {
+        force 'org.jetbrains:annotations:24.0.1'
+    }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    implementation "thedarkcolour:kotlinforforge:${kotlin_for_forge_version}"
+
+    // 项目自带的本地依赖
+    implementation fileTree(dir: 'depend', includes: ['*.jar'])
+    compileOnly fileTree(dir: 'compile_only_depend', includes: ['*.jar'])
+    // MC 自带的 gson（mixin 插件启用后似乎从 compileClasspath 掉了，显式声明）
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+
+    // ★ Embeddium（1.20.1 Forge 的 Sodium）——地形覆盖层兼容层的编译依赖。
+    //
+    // 为什么是 Embeddium 而不是 Sodium：
+    //   Sodium 官方在 1.20.1 **没有 Forge/NeoForge 版**（Modrinth 实查：1.20.1 的 13 个发布
+    //   全是 fabric/quilt；Forge 线从 1.21.1 才开始）。1.20.1 Forge 的等价物是 Embeddium
+    //   （Rubidium 的官方后继者，Rubidium 已停更）。
+    //
+    // 好消息：Embeddium 沿用 Sodium 的**旧包名** me.jellysquid.mods.sodium.*
+    // （不是上游 1.21 用的 net.caffeinemc.mods.sodium.*），
+    // 所以 mixin 源码里的 import 已经按这个包名写好了。
+    //
+    // 版本：0.3.31+mc1.20.1（Modrinth 上 1.20.1/forge 的最新版）
+    //   sha512 前缀 ffbf2da4685260a4d5c14c621708bd20（下载后已核对）
+    //
+    // 注意：**只在编译期需要**。运行期由用户装不装 Embeddium 决定 ——
+    // 不装的话 CooSodiumMixinPlugin.shouldApplyMixin 返回 false，整组 mixin 不应用。
+    compileOnly files('compile_only_depend/embeddium-0.3.31+mc1.20.1.jar')
+
+    // ★ Oculus（1.20.1 Forge 的 Iris）——光影兼容的编译依赖。
+    //
+    // 与 Embeddium 一样的原因：Iris 官方在 1.20.1 **没有 Forge 版**，
+    // 1.20.1 Forge 的等价物是 Oculus（Iris 的 FML 移植，Modrinth 项目 id = oculus）。
+    //
+    // ★★ 但情况比 Embeddium 好得多：Oculus **完整保留了 `net.irisshaders.*` 包名**，
+    //    而项目的 Iris 兼容层（compat/IrisCompat.kt）**全部用 Class.forName 反射**，
+    //    没有任何编译期类型引用 —— 所以这层本来就是「版本无关」的。
+    //
+    //    2026-10-05 逐项验证过 9 个引用点，全部命中：
+    //      Iris.getPipelineManager()
+    //      PipelineManager.getPipeline()
+    //      WorldRenderingPipeline.getParticleRenderingSettings()
+    //      ShaderAccess.getParticleTranslucentShader()
+    //      ShadowRenderer.ACTIVE
+    //      IrisApi.isShaderPackInUse()
+    //      OuterWrappedRenderType.wrapExactlyOnce(String, RenderType, RenderStateShard)
+    //      ShaderKey.getAlphaTest() / ShaderKey.PARTICLES / ShaderKey.PARTICLES_TRANS
+    //      ShaderInstance.iris$shouldSkipThis()（@Dynamic + require=0，允许缺失）
+    //
+    //    所以这个 jar 只是为了「让 IDE / 未来新增的编译期引用有正确的类型可查」，
+    //    不是运行时必需。不装 Oculus 的客户端，整层兼容代码静默跳过。
+    //
+    // 版本：1.20.1-1.8.0（Modrinth 上 1.20.1/forge 的最新版）
+    //   sha512 1bb4ac77400d6684347988ed298a692c2cb15cf7923693607eb8739b171a20fe…
+    //   （下载后已核对，完整值见 compile_only_depend/ 目录注释）
+    compileOnly files('compile_only_depend/oculus-mc1.20.1-1.8.0.jar')
+
+    // mixin / asm（common 里用到的）
+    compileOnly 'org.spongepowered:mixin:0.8.5'
+    compileOnly 'org.ow2.asm:asm:9.7'
+    compileOnly 'org.ow2.asm:asm-tree:9.7'
+    compileOnly 'io.github.llamalad7:mixinextras-common:0.3.5'
+    annotationProcessor 'io.github.llamalad7:mixinextras-common:0.3.5'
+
+    // Mixin 注解处理器：生成 refmap（official 名 → SRG 名）。
+    // Sponge 仓库的 pom 是 404，所以用本地 jar 走 files()。
+    annotationProcessor files('mixin-libs/mixin-processor.jar')
+
+    implementation 'io.github.classgraph:classgraph:4.8.184'
+}
+
+
+// ── 把 Mixin AP 未覆盖的 @Shadow 成员补进 refmap ──
+// 背景：`@Mixin` 类里的 @Shadow 不会被 AP 写进 refmap（只有 @Accessor/@Invoker 会）。
+// 没补的话，生产环境下 @Shadow 用 official 名找不到 SRG 名的字段 → 整局崩。
+// MixinGradle 会把待映射成员收集到 build/tmp/compileJava/compileJava-mappings.tsrg，
+// 这里用完整映射表回填进 refmap。
+tasks.named("compileJava").configure {
+    doLast {
+        def script = new File(rootDir, "scripts/merge_refmap.py")
+        if (script.exists()) {
+            def p = new ProcessBuilder("python3", script.absolutePath, projectDir.absolutePath)
+                .redirectErrorStream(true).start()
+            p.inputStream.eachLine { println "  [merge_refmap] " + it }
+            if (p.waitFor() != 0) throw new GradleException("merge_refmap 失败")
+        }
+    }
+}
+
+tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+    kotlinOptions {
+        jvmTarget = '17'
+        freeCompilerArgs += ['-Xjvm-default=all']
+    }
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    // 资源目录有重复项（1.21 与 1.20.1 的生成产物都放一起了），排除策略
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    var expandProps = [
+            'version'                      : version,
+            'group'                        : project.group,
+            'minecraft_version'            : minecraft_version,
+            'minecraft_version_range'      : minecraft_version_range,
+            'mod_name'                     : mod_name,
+            'mod_author'                   : mod_author,
+            'mod_id'                       : mod_id,
+            'license'                      : license,
+            'description'                  : project.description,
+            'forge_version'                : forge_version,
+            'forge_loader_version_range'   : forge_loader_version_range,
+            'kotlin_for_forge_version'     : kotlin_for_forge_version,
+            'kotlinforforge_range'         : kotlinforforge_range,
+            'java_version'                 : java_version
+    ]
+    filesMatching(['pack.mcmeta', 'META-INF/mods.toml', '*.mixins.json']) {
+        expand expandProps
+    }
+    inputs.properties(expandProps)
+}
+
+jar {
+    manifest {
+        attributes([
+                'MixinConfigs'            : 'cooparticlesapi.mixins.json,cooparticlesapi.sodium.mixins.json',
+                'Specification-Title'     : mod_name,
+                'Specification-Vendor'    : mod_author,
+                'Specification-Version'   : project.jar.archiveVersion,
+                'Implementation-Title'    : project.name,
+                'Implementation-Version'  : project.jar.archiveVersion,
+                'Implementation-Vendor'   : mod_author,
+                'Built-On-Minecraft'      : minecraft_version
+        ])
+    }
+}
+
+// ── 所有 Jar 任务统一去重策略 ──
+// 背景：1.21 与 1.20.1 两套生成资源里有重名文件，
+// sourcesJar 会因此报 "duplicate but no duplicate handling strategy" 而中断 `build`，
+// 导致 reobfJar 之后的链路跑不完，build/libs 里留下**未 reobf 的开发版 jar**
+// → 生产环境 @Shadow 用 official 名匹配 SRG 目标，启动即崩。
+tasks.withType(Jar).configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+// ── 把 implementation 的非 mod 依赖嵌进主 jar ──
+// ForgeGradle 6 不会把 implementation 依赖打进 build/libs/*.jar（要 Java9 jarJar），
+// 所以 EvalEx / ClassGraph 得手工嵌入。
+//
+// ⚠️ `reobfJar` 是 ForgeGradle 延迟创建的，build 脚本求值时 tasks.named("reobfJar")
+// 会报 "Task with name 'reobfJar' not found"。所以用 configureEach 延迟绑定。
+tasks.configureEach { t ->
+    if (t.name == "reobfJar") {
+        t.doLast {
+            def script = new File(projectDir, "scripts/embed_deps.py")
+            if (script.exists()) {
+                def p = new ProcessBuilder("python3", script.absolutePath, projectDir.absolutePath)
+                    .redirectErrorStream(true).start()
+                p.inputStream.eachLine { println it }
+                if (p.waitFor() != 0) throw new GradleException("embed_deps 失败")
+            }
+        }
+    }
+}

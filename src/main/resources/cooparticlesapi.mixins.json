@@ -1,0 +1,44 @@
+{
+  "minVersion": "0.8.5",
+  "required": true,
+  "package": "cn.coostack.cooparticlesapi.mixin",
+  "plugin": "cn.coostack.cooparticlesapi.mixin.plugin.CooParticleMixinLoaderPlugin",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "ChunkBufferBuilderPackMixin",
+    "ChunkRenderDispatcherRenderChunkMixin",
+    "PerformanceStatusVanillaPacketMixin",
+    "RebuildTaskMixin",
+    "events.entity.EntityMixin",
+    "events.entity.EntityMixinForge",
+    "events.entity.player.ItemStackMixinForge",
+    "events.entity.player.PlayerListMixin",
+    "events.entity.player.ServerPlayerGameModeMixin"
+  ],
+  "refmap": "cooparticlesapi.refmap.json",
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "client": [
+    "CooParticleCameraMixin",
+    "CooFxCameraMouseMixin",
+    "CParticleEngineForgeMixin",
+    "GameRendererCooFxCameraMixin",
+    "GameRendererTerrainFinishMixin",
+    "LevelRendererMixin",
+    "MainTargetMixin",
+    "MinecraftClientLifecycleMixin",
+    "MutableSpriteSetAccessor",
+    "ParticleEngineAccessor",
+    "DebugScreenOverlayMixin",
+    "ParticleEngineMixin",
+    "compat.iris.ShaderKeyIrisCompatMixin",
+    "compat.iris.ShaderInstanceIrisCompatMixin",
+    "SoundEngineMixin",
+    "TestControllerPickKeyboardMixin",
+    "TestControllerPickMouseMixin",
+    "TestControllerPickUseMixin",
+    "events.world.client.ItemRendererInvoker",
+    "events.world.client.LevelRendererMixin"
+  ]
+}

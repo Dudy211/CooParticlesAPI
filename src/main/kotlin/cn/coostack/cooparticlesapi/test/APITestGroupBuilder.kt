@@ -1,0 +1,291 @@
+package cn.coostack.cooparticlesapi.test
+
+import cn.coostack.cooparticlesapi.animation.Animate
+import cn.coostack.cooparticlesapi.animation.AnimateNode
+import cn.coostack.cooparticlesapi.extend.asRelative
+import cn.coostack.cooparticlesapi.extend.ofID
+import cn.coostack.cooparticlesapi.extend.plus
+import cn.coostack.cooparticlesapi.extend.random
+import cn.coostack.cooparticlesapi.extend.times
+import cn.coostack.cooparticlesapi.network.particle.emitters.PhysicConstant
+import cn.coostack.cooparticlesapi.particles.CooParticleTextureSheet
+import cn.coostack.cooparticlesapi.particles.impl.ControlableSplashEffect
+import cn.coostack.cooparticlesapi.test.api.TestGroup
+import cn.coostack.cooparticlesapi.test.api.TestGroupBuilder
+import cn.coostack.cooparticlesapi.test.options.animate.TestEmitterAction
+import cn.coostack.cooparticlesapi.test.options.animate.TestStyleAction
+import cn.coostack.cooparticlesapi.test.options.display.BarrageItemDisplayEntity
+import cn.coostack.cooparticlesapi.test.options.display.CylinderBoardDisplayEntity
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestComposition
+import cn.coostack.cooparticlesapi.test.options.display.TestBlockDisplayEntity
+import cn.coostack.cooparticlesapi.test.options.particle.composition.GenNewComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.SequenceTestGPUComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestFourierPhotoComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestGlowingAnimationComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestModelComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestNoiseLightComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestSeqComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestShapedComposition
+import cn.coostack.cooparticlesapi.test.options.particle.composition.TestSimpleParticleComposition
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.InterpolatorTestEmitter
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestAlphaShaderEmitter
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestCommandEmitter
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestDisplayEntityAutoEmitters
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestEventEmitter
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestRespawnEmitter
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.TestWaveEmitters
+import cn.coostack.cooparticlesapi.test.options.particle.emitter.event.TestCollideEventHandler
+import cn.coostack.cooparticlesapi.test.options.particle.style.RomaMagicTestStyle
+import cn.coostack.cooparticlesapi.test.options.renderer.PostEffectDemoOptions
+import cn.coostack.cooparticlesapi.test.options.renderer.world.DemoWorldRenderEffectOptions
+import cn.coostack.cooparticlesapi.utils.Math3DUtil
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.world.entity.player.Player
+import net.minecraft.world.phys.Vec3
+import org.joml.Vector3f
+import kotlin.random.Random
+
+class APITestGroupBuilder(val player: Player) : TestGroupBuilder {
+    companion object {
+        /** 注册与构建结果共同使用的测试组 ID。 */
+        @JvmField
+        val ID: ResourceLocation = ofID("api-test-group-builder")
+    }
+
+    override fun groupID(): ResourceLocation {
+        return ID
+    }
+
+    override fun build(): TestGroup {
+        return GamingTestGroup(player, groupID())
+            .appendOption {
+                SimpleCompositionOption(
+                    TestSimpleParticleComposition(player.eyePosition + player.forward * 3.0, player.level()),
+                    -1
+                )
+            }
+            .appendOption {
+                SimpleEmitterOption(
+                    TestDisplayEntityAutoEmitters(player.eyePosition, player.level()).apply {
+                        maxTick = -1
+                        delay = 8
+                        ringRadius = 3.0
+                        ringPoints = 16
+                        axisDirection = player.forward
+                        lineWidth = 0.08F
+                        lineLength = 1.35F
+                        inwardSpeed = 0.18
+                        lineLife = 22
+                    }, -1
+                )
+            }
+            .appendOption {
+                DemoWorldRenderEffectOptions.irisStraightLaser(player)
+            }
+            .appendOption {
+                DemoWorldRenderEffectOptions.maskBloomStraightLaser(player)
+            }
+            .appendOption {
+                SimpleDisplayEntityOption(
+                    TestBlockDisplayEntity(player.eyePosition, player.level()), 200
+                )
+            }
+            .appendOption {
+                SimpleDisplayEntityOption(
+                    CylinderBoardDisplayEntity(player.eyePosition + player.forward * 4.0, player.level()).apply {
+                        direction = player.forward
+                        lineWidth = 0.12F
+                        length = 4.0F
+                        maxAge = 200
+                        fadeOut = false
+                    }, 200
+                )
+            }
+            .appendOption {
+                SimpleCompositionOption(TestComposition(player.eyePosition, player.level()).apply {
+                    movement = player.forward.asRelative()
+                }, -1)
+            }
+            .appendOption {
+                SimpleEmitterOption(
+                    TestAlphaShaderEmitter(player.eyePosition, player.level()).apply {
+                        maxTick = -1
+                        delay = 25
+                    }, -1
+                )
+            }
+            .appendOption {
+                SimpleEmitterOption(
+                    TestEventEmitter(player.eyePosition, player.level())
+                        .apply {
+                            gravity = PhysicConstant.EARTH_GRAVITY
+                            shootDirection = player.forward
+                            addEventHandler(TestCollideEventHandler, false)
+                        }, -1
+                )
+            }.appendOption {
+                SimpleEmitterOption(
+                    TestEventEmitter(player.eyePosition, player.level())
+                        .apply {
+                            gravity = PhysicConstant.EARTH_GRAVITY
+                            shootDirection = player.forward
+                            templateData.effect = ControlableSplashEffect(templateData.uuid)
+                            templateData.color = Math3DUtil.colorOf(255, 0, 0)
+                            addEventHandler(TestCollideEventHandler, false)
+                        }, -1
+                )
+            }.appendOption {
+                SimpleStyleOption(RomaMagicTestStyle(), player.level(), player.eyePosition, 100)
+            }.appendOption {
+                var styleTick = 0
+                SimpleAnimateOption(
+                    Animate()
+                        .addNode(
+                            AnimateNode()
+                                .addAction(
+                                    TestEmitterAction(
+                                        TestEventEmitter(player.eyePosition, player.level())
+                                            .apply {
+                                                gravity = PhysicConstant.EARTH_GRAVITY
+                                                shootDirection = player.forward
+                                                addEventHandler(TestCollideEventHandler, false)
+                                            }
+                                    ) {}
+                                ).addAction(
+                                    TestEmitterAction(
+                                        TestEventEmitter(player.eyePosition, player.level())
+                                            .apply {
+                                                gravity = PhysicConstant.EARTH_GRAVITY
+                                                shootDirection = player.forward * -1.0
+                                                addEventHandler(TestCollideEventHandler, false)
+                                            }
+                                    ) {}
+                                ), 20
+                        )
+                        .addNode(
+                            AnimateNode()
+                                .addAction(
+                                    TestStyleAction(
+                                        RomaMagicTestStyle(), player.level(), player.eyePosition + Vec3(0.0, 2.0, 0.0)
+                                    ) {
+                                        if (styleTick++ > 100) {
+                                            this.cancel()
+                                        }
+                                    }
+                                ), 10
+                        ), -1)
+            }.appendOption {
+                ShakeOption(100, player)
+            }.appendOption {
+                ServerSoundStartLoopTestOption(player)
+            }.appendOption {
+                ServerSoundStartDuckLoopTestOption(player)
+            }.appendOption {
+                ServerSoundFadeTestOption(player)
+            }.appendOption {
+                PostEffectDemoOptions.grayscale(player)
+            }.appendOption {
+                PostEffectDemoOptions.serverShockwave(player)
+            }.appendOption {
+                PostEffectDemoOptions.bloom(player)
+            }.appendOption {
+                PostEffectDemoOptions.screenDistortion(player)
+            }.appendOption {
+                PostEffectDemoOptions.halo(player)
+            }.appendOption {
+                PostEffectDemoOptions.blockBinding(player)
+            }.appendOption {
+                PostEffectDemoOptions.itemBinding(player)
+            }.appendOption {
+                PostEffectDemoOptions.customChain(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.blackHole(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.shield(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.lightBeam(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.lightOrb(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.waterBall(player)
+            }.appendOption {
+                DemoWorldRenderEffectOptions.trailOrb(player)
+            }
+            .appendOption {
+                SimpleCompositionOption(TestSeqComposition(player.eyePosition, player.level()), 1000)
+            }
+            .appendOption {
+                SimpleCompositionOption(
+                    SequenceTestGPUComposition(
+                        player.eyePosition + player.forward * 3.0,
+                        player.level()
+                    ),
+                    1000
+                )
+            }
+            .appendOption {
+                SimpleEmitterOption(
+                    InterpolatorTestEmitter(player.eyePosition, player.level())
+                        .apply {
+                            movement = player.forward * 10.0
+                            maxTick = -1
+                        }, -1
+                )
+            }
+            .appendOption {
+                SimpleCompositionOption(TestFourierPhotoComposition(player.eyePosition, player.level()), 1000)
+            }.appendOption {
+                SimpleCompositionOption(TestShapedComposition(player.eyePosition, player.level()), 2000)
+            }.appendOption {
+                SimpleDisplayEntityOption(BarrageItemDisplayEntity(player.eyePosition, player.level()), -1)
+            }.appendOption {
+                SimpleEmitterOption(
+                    TestCommandEmitter(player.eyePosition, player.level()).apply {
+                        direction = player.forward
+                        gravity = 0.05
+                        template.setTextureSheet(CooParticleTextureSheet.ADDITION_BLEND_TRANSLUCENT)
+                        template.color = Vector3f(0.35F, 0.70F, 1.00F)
+                        maxTick = -1
+                        ballRadius = 1.0
+                        ballOption.apply {
+                            minAge = 80
+                            maxAge = 100
+                        }
+                    }, -1
+                ).apply {
+                    ticking = {
+                        testEmitters as TestCommandEmitter
+                    }
+                }
+            }
+            .appendOption {
+                SimpleEmitterOption(TestWaveEmitters(player.eyePosition, player.level()).apply {
+                }, -1)
+            }
+
+            .appendOption {
+                SimpleCompositionOption(TestNoiseLightComposition(player.eyePosition, player.level()).apply {
+                    end = Vec3.ZERO.random() * Random.nextDouble(10.0, 60.0) + player.eyePosition
+                    nodeCount = 32
+                }, -1)
+            }.appendOption {
+                SimpleCompositionOption(
+                    TestGlowingAnimationComposition(
+                        player.position() + player.forward * 10,
+                        player.level()
+                    ).apply {
+                        glowingTick = 20
+                        glowedCount = 32
+                    }, -1
+                )
+            }.appendOption {
+                SimpleCompositionOption(TestModelComposition(player.position(), player.level()), -1)
+            }.appendOption {
+                SimpleEmitterOption(TestRespawnEmitter(player.eyePosition, player.level()).apply {
+                    maxTick = 200
+                }, -1)
+            }.appendOption {
+                SimpleCompositionOption(GenNewComposition(player.eyePosition, player.level()), -1)
+            }
+    }
+}
