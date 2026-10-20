@@ -70,6 +70,20 @@ object CooParticlesAPIClient {
     lateinit var access: RegistryAccess
 
     /**
+     * Iris 系光影模组是否在场。
+     *
+     * ★ 2026-10-20 修复(Bug E):1.20.1 Forge 上实际装的是 **Oculus**
+     * (Iris 的 Forge 移植,modid = "oculus")。只检测 "iris" 会永远返回 false →
+     * `markUnskippable` / `wrapEntityRenderType` / `syncRenderBackend` 等
+     * 整个 Iris 兼容层全部短路,开光影后自定义渲染会失效或错乱。
+     * 与 mixin 插件的判定范围保持一致(类探针认 net.irisshaders.* 包名)。
+     */
+    private fun isIrisFamilyLoaded(): Boolean {
+        return CooParticlesServices.PLATFORM.isModLoaded("iris")
+                || CooParticlesServices.PLATFORM.isModLoaded("oculus")
+    }
+
+    /**
      * 初始化客户端注册项、CParticle 图形 program，并应用当前配置中的粒子总量上限。
      *
      * 示例：客户端入口在 common 初始化完成后调用一次 `init()`。
@@ -78,7 +92,7 @@ object CooParticlesAPIClient {
      */
     @JvmStatic
     fun init() {
-        irisLoaded = CooParticlesServices.PLATFORM.isModLoaded("iris")
+        irisLoaded = isIrisFamilyLoaded()
         CParticleSystemManager.configureParticleCountLimit(
             CooParticlesServices.API_CONFIG_MANAGER.getConfig().cparticleCountLimit
         )

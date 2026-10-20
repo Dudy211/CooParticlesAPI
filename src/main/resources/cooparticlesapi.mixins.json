@@ -39,6 +39,8 @@
     "TestControllerPickMouseMixin",
     "TestControllerPickUseMixin",
     "events.world.client.ItemRendererInvoker",
-    "events.world.client.LevelRendererMixin"
+    "events.world.client.LevelRendererMixin",
+    "KeyMappingMixin",
+    "KeyMappingAccessor"
   ]
 }

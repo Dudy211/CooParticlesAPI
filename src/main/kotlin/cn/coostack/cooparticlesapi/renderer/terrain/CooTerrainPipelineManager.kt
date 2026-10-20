@@ -139,6 +139,22 @@ internal object CooTerrainPipelineManager {
     private var fullSectionRebuildPending = false
 
     /**
+     * Sodium 系模组是否在场。
+     *
+     * ★ 2026-10-15 修复(Bug D):1.20.1 Forge 上实际装的是 Embeddium / Rubidium
+     * (Sodium 官方没有 1.20.1 Forge 版),它们的 modid 不是 "sodium" ——
+     * 只检测 "sodium" 会漏判 → CooSodiumMixinPlugin(类探针)已把 Embeddium mixin
+     * 全部应用,而这里却仍走 vanilla RebuildTask 路径 → 两套路径同时活着:
+     * 覆盖层写入的 buffer 无人消费(特效看不见)+ 每帧白写顶点(卡顿)。
+     * 与 mixin 插件的类探针保持同一判定范围。
+     */
+    private fun isSodiumFamilyLoaded(): Boolean {
+        return CooParticlesServices.PLATFORM.isModLoaded("sodium")
+                || CooParticlesServices.PLATFORM.isModLoaded("embeddium")
+                || CooParticlesServices.PLATFORM.isModLoaded("rubidium")
+    }
+
+    /**
      * 注册 Pipeline 变更和 shader reload 监听，并读取初始兼容状态。
      *
      * 可重复调用；完成首次初始化后后续调用不会重复注册监听器。
@@ -147,7 +163,7 @@ internal object CooTerrainPipelineManager {
     fun initialize() {
         if (initialized) return
         initialized = true
-        sodiumLoaded = CooParticlesServices.PLATFORM.isModLoaded("sodium")
+        sodiumLoaded = isSodiumFamilyLoaded()
         irisShaderPackActive = isIrisShaderPackActive()
         logCompatibilityMode()
         CooBlockPipelines.addChangeListener { onBlockBindingsChanged() }
@@ -168,7 +184,7 @@ internal object CooTerrainPipelineManager {
     @JvmStatic
     fun updateCompatibilityState() {
         initialize()
-        val currentSodium = CooParticlesServices.PLATFORM.isModLoaded("sodium")
+        val currentSodium = isSodiumFamilyLoaded()
         val currentIrisShaderPack = isIrisShaderPackActive()
         if (currentSodium == sodiumLoaded && currentIrisShaderPack == irisShaderPackActive) return
         sodiumLoaded = currentSodium
