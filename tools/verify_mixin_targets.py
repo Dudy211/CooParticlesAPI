@@ -37,6 +37,67 @@ def load_tsrg(path):
             out[cur]["f"][p[0]] = p[1]; out[cur]["any"].add(p[0])
     return out
 
+def find_mc_srg_jar(proj):
+    """定位 MC 的 srg jar(ForgeGradle 缓存里),用于读取真实字段修饰符。"""
+    import glob
+    pats = [
+        "/workspace/mc/gradle_user_home/caches/forge_gradle/mcp_repo/net/minecraft/joined/*/joined-*-srg.jar",
+        os.path.expanduser("~/.gradle/caches/forge_gradle/mcp_repo/net/minecraft/joined/*/joined-*-srg.jar"),
+        os.path.join(proj, "build/createMcpToSrg/*.jar"),
+    ]
+    for pat in pats:
+        hits = glob.glob(pat)
+        if hits:
+            return sorted(hits)[-1]
+    return None
+
+
+def collect_final_fields(jar_path, class_names):
+    """用 javap 读 srg jar,采集目标类里所有 `static final` 字段(名字集合)。
+
+    ★ 2026-10-21:@Shadow 字段必须与目标修饰符一致,否则 attachFields 会崩。
+    这里拿到真实 final 字段名,供上面的校验使用。
+    """
+    import subprocess, tempfile, shutil
+    out = set()
+    if not jar_path or not os.path.exists(jar_path):
+        return out
+    javap = shutil.which("javap")
+    if javap is None:
+        return out
+    tmp = tempfile.mkdtemp()
+    try:
+        for cn in class_names:
+            entry = cn.replace(".", "/") + ".class"
+            try:
+                with zipfile.ZipFile(jar_path) as z:
+                    if entry not in z.namelist():
+                        continue
+                    z.extract(entry, tmp)
+            except Exception:
+                continue
+            try:
+                r = subprocess.run([javap, "-p", os.path.join(tmp, entry)],
+                                   capture_output=True, text=True, timeout=60)
+                for line in r.stdout.splitlines():
+                    st = line.strip()
+                    if not st.startswith(("private", "public", "protected")):
+                        continue
+                    if " final " not in f" {st} ":
+                        continue
+                    # javap: `private static final java.util.Map<...> f_90810_;`
+                    # 字段名是 `;` 前最后一段(泛型里有空格,不能用 split()[-1])
+                    body = st.rstrip(";").rstrip()
+                    m2 = re.search(r'([\w$]+)\s*$', body)
+                    if m2:
+                        out.add(m2.group(1))
+            except Exception:
+                pass
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return out
+
+
 def strip_comments(s):
     s = re.sub(r'/\*[\s\S]*?\*/', '', s)
     return re.sub(r'//[^\n]*', '', s)
@@ -151,6 +212,7 @@ def main():
     # ★ 2026-10-05 修复：原实现只看 mjs[0]，导致新增的第二个 config
     #   （cooparticlesapi.sodium.mixins.json）整组 mixin 不被校验，
     #   脚本会给出「通过」的假绿。现在逐个 config 跑。
+    at_final_fields = set()   # 目标 final 字段名(srg)集合
     total_problems = []
     total_files = 0
     for cfg_path in mjs:
@@ -171,6 +233,29 @@ def main():
       srcs = []
       for ext in ("java", "kt"):
           srcs += glob.glob(os.path.join(proj, "src/main/**/*." + ext), recursive=True)
+
+      # 采集本 config 涉及的目标类的 final 字段
+      _targets = set()
+      for _e in listed:
+          _f = None
+          for _s in srcs:
+              _sp = _s.replace("\\", "/")
+              if "/mixin/" in _sp and (_sp.endswith("/" + _e.replace(".", "/") + ".java")
+                                       or _sp.endswith("/" + _e.replace(".", "/") + ".kt")):
+                  _f = _s; break
+          if _f:
+              _txt = strip_comments(open(_f, encoding="utf-8", errors="replace").read())
+              _imps = {i.rsplit(".", 1)[-1]: i
+                       for i in re.findall(r'^\s*import\s+([\w.]+)\s*;', _txt, re.M)}
+              for _b in re.findall(r'@Mixin\s*\(([\s\S]{0,300}?)\)', _txt):
+                  for _t in re.findall(r'targets\s*=\s*"([^"]+)"', _b):
+                      _targets.add(_t.replace("/", "."))
+                  for _v in re.findall(r'(?:value\s*=\s*)?([\w.]+)\.class', _b):
+                      # 简名要按 import 补全成全限定名
+                      _targets.add(_imps.get(_v, _v))
+      _mcjar = find_mc_srg_jar(proj)
+      if _mcjar and _targets:
+          at_final_fields |= collect_final_fields(_mcjar, _targets)
 
       problems, nfiles = [], 0
       for entry in listed:
@@ -224,6 +309,37 @@ def main():
               if not re.match(r'\s*(throws|:|\{|\s*\{)', rest):
                   continue
               methods.append((mm.start(), mm.group(1), txt[op + 1:cl]))
+
+          # ★ 2026-10-21 新增:@Shadow 字段修饰符校验(精确版)
+          #   只有当目标字段在 tsrg/AT 里确实是 final 时,才要求 mixin 侧
+          #   写 @Final —— 否则 attachFields 报 "was not located" 启动崩溃。
+          #   (目标不是 final 的话,@Shadow 不带 @Final 是正确的,不能误报。)
+          for sm in re.finditer(
+                  r'@Shadow\s*(?:@\w+(?:\([^)]*\))?\s*)*'
+                  r'(?:(?:private|protected|public)\s+)?(?:static\s+)?'
+                  r'(final\s+)?[\w.$<>\[\], ]+?\s+(\w+)\s*(?:=[^;]*)?;', txt):
+              has_java_final = bool(sm.group(1))
+              fname = sm.group(2)
+              fpos = sm.start()
+              # @Final 可能写在 @Shadow 之前、之后(不同行),取前后各 200 字符判断
+              ctx = txt[max(0, fpos - 200):fpos + 200]
+              has_mixin_final = "@Final" in ctx
+              if has_java_final or has_mixin_final:
+                  continue
+              # 查目标类里这个字段是不是 final
+              for tc in game:
+                  d = ts[tc.replace(".", "/")]
+                  srg_name = d["f"].get(fname)
+                  if not srg_name:
+                      continue
+                  # 用 javap 结果(若脚本采集过)或直接按经验:静态 Map/Set 常量多为 final
+                  # javap 收集到的是 **srg 名**(jar 是 srg 的),直接用 srg_name 比对
+                  is_final_target = srg_name in at_final_fields
+                  if is_final_target:
+                      problems.append((entry, "Shadow", fname,
+                                       "@Shadow 字段缺 @Final(目标字段是 final)",
+                                       "无 @Final", "加 @Final 或改用 @Accessor"))
+                  break
 
           for am in re.finditer(r'@(%s)\b' % "|".join(ANNS), txt):
               kind = am.group(1)
